@@ -8,12 +8,15 @@ alias entp = ushort;
 
 int main(string[] argumentos)
 {  
+// Verificar que haya por lo menos un número en la secuencia.
 	if(argumentos.length == 1)
 	{
 		writeln("Error: No se dieron los elementos de la secuencia a procesar.");
 		return -1;
 	}
+//
 
+// Obtener la secuencia de números en un arreglo de enteros sin signo y reportar errores en la conversión de cadena a número.
 	entp[] secuencia; 
 	try
 		secuencia = map!(arg => to!entp(arg))(argumentos[1 .. $]).array();
@@ -28,14 +31,18 @@ int main(string[] argumentos)
 		return -1;
 	}
 	assert(secuencia.length > 0);
+//
 
+// Determinar si existe alguna repetición en la secuencia y reportar un error si existe.
 	auto repetición = secuencia.primeraRepetición;
 	if(repetición.existe)
 	{
 		writeln("Error: La secuencia repite el número ", repetición.númeroRepetido, ".");
 		return -1;
 	}
+//
 
+// Obtener el número mayor en la secuencia de números y obtener la cantidad de bits necesarios para representar tal número.
 	auto máximoEnSecuencia = secuencia.maxElement;
 	ubyte númeroDeBits = 0;
 	auto máximoEnSecuenciaCopia = máximoEnSecuencia;
@@ -49,12 +56,13 @@ int main(string[] argumentos)
 			throw new Error("Overflow en cuenta de bits");
 		}
 	}
-
 	writeln(secuencia, ". Máximo en secuencia: ", máximoEnSecuencia, ". Número de bits necesarios: ", númeroDeBits);
+//
 
 
 	Tuple!(entp, "presente", entp, "futuro")[] transiciones;
 
+// Mostrar la tabla de transiciones.
 	writeln("\tpresente => futuro");
 
 	write("\t");
@@ -65,33 +73,44 @@ int main(string[] argumentos)
 		write(cast(char)('A' + bit));
 	writeln("");
 	writeln("");
+//
 
+// Llenar la tabla de transiciones.
 	foreach(i, número; secuencia)
 	{
 		auto siguiente = secuencia[(i + 1) % secuencia.length];
 		writefln("\t%0*b => %0*b", númeroDeBits, número, númeroDeBits, siguiente);
 		transiciones ~= tuple!("presente", "futuro")(número, siguiente);
 	}
+//
 
 	ExpresiónBooleana[] expresiones; 
 	expresiones.length = númeroDeBits;
 	expresiones[] = ExpresiónBooleana(númeroDeBits);
 	
+// Obtener las expresiones booleanas por la tabla de transiciones.
 	foreach(transición; transiciones)
 		for(ushort bit = 0; bit < númeroDeBits; bit++)
 			if(transición.futuro & (1 << bit))
 				expresiones[bit].añadirMinitérmino(Minitérmino(transición.presente, númeroDeBits));
+//
 
+// Mostrar las ecuaciones booleanas sin reducción.
 	writeln("Ecuaciones sin reducción:");
 	foreach(variable, expresión; expresiones)
 		writeln("\tD", cast(char)(variable + 'a'), " = ", expresión);
+//
 
+// Efectuar la primera fase de reducción del método de Quine-McCluskey.
 	foreach(ref expresión; expresiones)
 		expresión = primeraReducciónQuineMcCluskey(expresión);
+//
 
+// Mostrar las ecuaciones resultantes de la primera fase de Quine-McCluskey.
 	writeln("Ecuaciones con primera fase de Quine-McCluskey:");
 	foreach(variable, expresión; expresiones)
 		writeln("\tD", cast(char)(variable + 'a'), " = ", expresión);
+//
 
 	return 0;
 }
