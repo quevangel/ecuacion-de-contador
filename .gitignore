@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/ecuacion-de-contador
+ecuacion-de-contador.so
+ecuacion-de-contador.dylib
+ecuacion-de-contador.dll
+ecuacion-de-contador.a
+ecuacion-de-contador.lib
+ecuacion-de-contador-test-*
+*.exe
+*.o
+*.obj
+*.lst

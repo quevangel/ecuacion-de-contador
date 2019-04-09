@@ -1,0 +1,9 @@
+{
+	"authors": [
+		"Miguel Ángel Martínez Quevedo"
+	],
+	"copyright": " ",
+	"description": "Programa para obtener las ecuaciones que describen un contador que genera la secuencia dada.",
+	"license": "",
+	"name": "ecuacion-de-contador"
+}
