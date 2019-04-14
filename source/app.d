@@ -107,7 +107,7 @@ int main(string[] argumentos)
 //
 
 // Mostrar las ecuaciones resultantes de la primera fase de Quine-McCluskey.
-	writeln("Ecuaciones con primera fase de Quine-McCluskey:");
+	writeln("Ecuaciones reducidas:");
 	foreach(variable, expresión; expresiones)
 		writeln("\tD", cast(char)(variable + 'a'), " = ", expresión);
 //
@@ -129,9 +129,9 @@ auto primeraRepetición(entp[] secuencia)
 
 struct Minitérmino
 {
-	enum Aparición 
+	enum Aparición : ubyte
 	{ 
-		Natural, Negada, Ignorada
+		Natural = 1, Negada = 2, Ignorada = 0
 	}
 
 	static Aparición[char] charAAparición;
@@ -181,6 +181,17 @@ struct Minitérmino
 			if(minitérmino[variable] != aparición)
 				return false;
 		return true;
+	}
+
+	ulong valor() inout
+	{
+		ulong res = 0, mult = 1;
+		foreach(a; apariciones)
+		{
+			res += cast(ulong) a * mult;
+			mult *= 3;
+		}
+		return res;
 	}
 
 	string toString()
@@ -249,74 +260,60 @@ struct ExpresiónBooleana
 	}
 }
 
+bool minitérminoMenor(inout Minitérmino m1, inout Minitérmino m2)
+{	
+	return m1.valor < m2.valor;
+}
+
 
 ExpresiónBooleana primeraReducciónQuineMcCluskey(ExpresiónBooleana expresión)
 {
+	import std.container.rbtree;
+	alias Minitérminos = RedBlackTree!(Minitérmino, minitérminoMenor);
+	alias conjuntoVacío = redBlackTree!(minitérminoMenor, Minitérmino);
+
 	auto númeroDeVariables = expresión.númeroDeVariables;
-	Minitérmino[][] tablaActual;
-	tablaActual.length = númeroDeVariables + 1;
-	tablaActual[] = [];
-
-	Minitérmino[] implicantesPrimos = [];
-
+	auto tablaActual = new Minitérminos[númeroDeVariables + 1];
+	foreach(ref conjunto; tablaActual)
+		conjunto = conjuntoVacío();
 	foreach(minitérmino; expresión)
-	{
-		ushort númeroDeUnos = cast(ushort)minitérmino.númeroDeNaturales;
-		tablaActual[númeroDeUnos] ~= minitérmino;
-	}
+		tablaActual[minitérmino.númeroDeNaturales].insert(minitérmino);
+	auto implicantesPrimos = redBlackTree!(minitérminoMenor, Minitérmino)();
 
-	debug foreach(númeroDeUnos, minitérminos; tablaActual)
-	{
-		writeln("minitérminos con ", númeroDeUnos, " unos: ");
-		writeln(minitérminos);
-		writeln("");
-	}
 
-	while(any!(mins => mins.length > 0)(tablaActual))
+	while(tablaActual.any!"a.length > 0")
 	{
-		Minitérmino[][] siguienteTabla;
-		siguienteTabla.length = númeroDeVariables + 1;
-		siguienteTabla[] = [];
-		debug foreach(númeroDeUnos, minitérminos; tablaActual)
-		{
-			writeln("minitérminos con ", númeroDeUnos, " unos: ");
-			writeln(minitérminos);
-			writeln("");
-		}
+		auto siguienteTabla = new Minitérminos[númeroDeVariables + 1];
+		bool[ulong] usado;
+		foreach(ref conjunto; siguienteTabla)
+			conjunto = conjuntoVacío();
+
 		foreach(númeroDeUnos, minitérminos; tablaActual[0 .. $ - 1])
 		{
 			auto siguientesMinitérminos = tablaActual[númeroDeUnos + 1];
 			foreach(ref minitérmino; minitérminos)
-			{
-				debug writeln("Para minitérmino ", minitérmino);
 				foreach(ref minitérminoAComparar; siguientesMinitérminos)
 				{
-					debug writeln("Comparando con minitérmino ", minitérminoAComparar);
 					auto flips = obtenerFlips(minitérmino, minitérminoAComparar);
-					debug writeln("Los flips son ", flips);
 					if(flips.length == 1)
 					{
-						debug writeln("Solo hubo un flip");
 						Minitérmino minitérminoMinimizado = Minitérmino(minitérmino);
 						minitérminoMinimizado[flips[0]] = Minitérmino.Aparición.Ignorada;
-						debug writeln("El minitérmino minimizado es ", minitérminoMinimizado);
-						siguienteTabla[minitérminoMinimizado.númeroDeNaturales] ~= minitérminoMinimizado;
-						minitérmino.usado = true;
-						minitérminoAComparar.usado = true;
+						siguienteTabla[minitérminoMinimizado.númeroDeNaturales].insert(minitérminoMinimizado);
+						usado[minitérmino.valor] = true;
+						usado[minitérminoAComparar.valor] = true;
 					}
 				}
-			}
 		}
 
 		foreach(númeroDeUnos, minitérminos; tablaActual)
 			foreach(minitérmino; minitérminos) 
-				if(!minitérmino.usado)
-					if(!any!(min => min.equivalente(minitérmino))(implicantesPrimos))
-						implicantesPrimos ~= minitérmino;
-		debug writeln("implicantes primos = ", implicantesPrimos);
-		tablaActual = siguienteTabla;
+				if(minitérmino.valor !in usado)
+					implicantesPrimos.insert(minitérmino);
 
+		tablaActual = siguienteTabla;
 	}
+
 	ExpresiónBooleana resultado = ExpresiónBooleana(númeroDeVariables);
 	foreach(implicantePrimo; implicantesPrimos)
 		resultado.añadirMinitérmino(implicantePrimo);
