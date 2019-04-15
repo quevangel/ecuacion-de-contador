@@ -3,6 +3,7 @@ import std.algorithm;
 import std.conv;
 import std.array;
 import std.typecons;
+import std.container.rbtree;
 
 alias entp = ushort;
 
@@ -60,7 +61,7 @@ int main(string[] argumentos)
 //
 
 
-	Tuple!(entp, "presente", entp, "futuro")[] transiciones;
+	entp[entp] transiciones;
 
 // Mostrar la tabla de transiciones.
 	writeln("\tpresente => futuro");
@@ -80,19 +81,31 @@ int main(string[] argumentos)
 	{
 		auto siguiente = secuencia[(i + 1) % secuencia.length];
 		writefln("\t%0*b => %0*b", númeroDeBits, número, númeroDeBits, siguiente);
-		transiciones ~= tuple!("presente", "futuro")(número, siguiente);
+		transiciones[número] = siguiente;
 	}
 //
 
 	ExpresiónBooleana[] expresiones; 
-	expresiones.length = númeroDeBits;
-	expresiones[] = ExpresiónBooleana(númeroDeBits);
+	expresiones.reserve(númeroDeBits);
+	for(ushort var = 0; var < númeroDeBits; var++)
+		expresiones ~= ExpresiónBooleana(númeroDeBits);
 	
 // Obtener las expresiones booleanas por la tabla de transiciones.
-	foreach(transición; transiciones)
-		for(ushort bit = 0; bit < númeroDeBits; bit++)
-			if(transición.futuro & (1 << bit))
-				expresiones[bit].añadirMinitérmino(Minitérmino(transición.presente, númeroDeBits));
+	for(entp presente = 0; presente < 1 << númeroDeBits; presente++)
+	{
+		if(presente in transiciones)
+		{
+			auto futuro = transiciones[presente];
+			for(ushort variable = 0; variable < númeroDeBits; variable++)
+				if(futuro & (1 << variable))
+					expresiones[variable].añadirMinitérmino(Minitérmino(presente, númeroDeBits));
+		}
+		else
+		{
+			for(ushort variable = 0; variable < númeroDeBits; variable++)
+				expresiones[variable].añadirDontCare(Minitérmino(presente, númeroDeBits));
+		}
+	}
 //
 
 // Mostrar las ecuaciones booleanas sin reducción.
@@ -103,7 +116,29 @@ int main(string[] argumentos)
 
 // Efectuar la primera fase de reducción del método de Quine-McCluskey.
 	foreach(ref expresión; expresiones)
-		expresión = primeraReducciónQuineMcCluskey(expresión);
+	{
+		auto implicantesPrimos = primeraReducciónQuineMcCluskey(expresión);
+		writeln("IMPLICANTES PRIMOS");
+		write("( "); 
+		foreach(implicante; implicantesPrimos)
+		{
+			write(implicante, " ");
+		}
+		writeln(" )");
+
+		auto representados = redBlackTree!int();
+		foreach(min; expresión)
+			representados.insert(min.representados[]);
+
+		auto implicantesReducidos = segundaReducciónQuineMcCluskey(implicantesPrimos[].array,
+				representados[].array);
+
+		auto expresiónReducida = ExpresiónBooleana(númeroDeBits);
+
+		foreach(implicante; implicantesReducidos)
+			expresiónReducida.añadirMinitérmino(implicante);
+		expresión = expresiónReducida;
+	}
 //
 
 // Mostrar las ecuaciones resultantes de la primera fase de Quine-McCluskey.
@@ -138,7 +173,7 @@ struct Minitérmino
 
 	Aparición[] apariciones;
 	alias apariciones this;
-	bool usado = false;
+	RedBlackTree!int representados;
 
 	static this()
 	{
@@ -146,22 +181,12 @@ struct Minitérmino
 		Aparición.Ignorada];
 	}
 
-	this(Aparición[] apariciones) 
-	{
-		this.apariciones = apariciones.dup;
-	}
-
 	this(Minitérmino minitérmino)
 	{
 		this.apariciones = minitérmino.apariciones.dup;
-		assert(equivalente(minitérmino));
-	}
+		representados = minitérmino.representados.dup;
 
-	this(string apariciones)
-	{
-		foreach(variable, tipoAparición; apariciones)
-			this.apariciones ~= charAAparición[tipoAparición];
-		assert(númeroDeVariables == apariciones.length);
+		assert(equivalente(minitérmino));
 	}
 
 	this(entp n, ushort númeroDeBits)
@@ -171,6 +196,15 @@ struct Minitérmino
 				apariciones ~= Aparición.Natural;
 			else
 				apariciones ~= Aparición.Negada;
+		representados = redBlackTree!int();
+		representados.insert(n);
+	}
+	
+	this(ushort númeroDeVariables)
+	{
+		apariciones.length = númeroDeVariables;
+		apariciones[] = Aparición.Ignorada;
+		representados = redBlackTree!int();
 	}
 
 	bool equivalente(Minitérmino minitérmino)
@@ -213,6 +247,13 @@ struct Minitérmino
 					break;
 			}
 		}
+		version(none)
+		{
+			resultado ~= "(";
+			foreach(representado; representados)
+				resultado ~= text(representado, " ");
+			resultado ~= ")";
+		}
 		return resultado;
 	}
 
@@ -229,12 +270,15 @@ struct Minitérmino
 
 struct ExpresiónBooleana
 {	
-	Minitérmino[] minitérminos;
+	RedBlackTree!(Minitérmino, minitérminoMenor) minitérminos;
+	RedBlackTree!(Minitérmino, minitérminoMenor) dontcares;
 	alias minitérminos this;
-	uint númeroDeVariables = 0;
+	private uint númeroDeVariables = 0;
 	this(uint númeroDeVariables)
 	{
 		this.númeroDeVariables = númeroDeVariables;
+		minitérminos = redBlackTree!(minitérminoMenor, Minitérmino)();
+		dontcares = redBlackTree!(minitérminoMenor, Minitérmino)();
 	}
 
 	ref ExpresiónBooleana añadirMinitérmino(Minitérmino minitérmino)
@@ -242,7 +286,13 @@ struct ExpresiónBooleana
 		assert(minitérmino.númeroDeVariables == númeroDeVariables, text("Se esperaba un minitérmino con
 				número de variables = ", númeroDeVariables, " tiene en realidad = ",
 				minitérmino.númeroDeVariables));
-		minitérminos ~= minitérmino;
+		minitérminos.insert(minitérmino);
+		return this;
+	}
+
+	ref ExpresiónBooleana añadirDontCare(Minitérmino minitérmino)
+	{
+		dontcares.insert(minitérmino);
 		return this;
 	}
 
@@ -252,10 +302,39 @@ struct ExpresiónBooleana
 			return "0";
 		string resultado = "";
 
-		resultado ~= text(minitérminos[0]);
-		foreach(minitérmino; minitérminos[1 .. $])
-			resultado ~= text(" + ", minitérmino);
+		bool primero = true;
 
+		foreach(minitérmino; minitérminos)
+		{
+			if(primero)
+			{
+				resultado ~= text(minitérmino);
+				primero = false;
+			}
+			else
+			{
+				resultado ~= text(" + ", minitérmino);
+			}
+		}
+
+		version(none)
+		{
+			resultado ~= text(" dc's : ");
+			primero = true;
+
+			foreach(minitérmino; dontcares)
+			{
+				if(primero)
+				{
+					resultado ~= text(minitérmino);
+					primero = false;
+				}
+				else
+				{
+					resultado ~= text(" + ", minitérmino);
+				}
+			}
+		}
 		return resultado;
 	}
 }
@@ -266,7 +345,7 @@ bool minitérminoMenor(inout Minitérmino m1, inout Minitérmino m2)
 }
 
 
-ExpresiónBooleana primeraReducciónQuineMcCluskey(ExpresiónBooleana expresión)
+RedBlackTree!(Minitérmino, minitérminoMenor) primeraReducciónQuineMcCluskey(ExpresiónBooleana expresión)
 {
 	import std.container.rbtree;
 	alias Minitérminos = RedBlackTree!(Minitérmino, minitérminoMenor);
@@ -277,6 +356,8 @@ ExpresiónBooleana primeraReducciónQuineMcCluskey(ExpresiónBooleana expresión
 	foreach(ref conjunto; tablaActual)
 		conjunto = conjuntoVacío();
 	foreach(minitérmino; expresión)
+		tablaActual[minitérmino.númeroDeNaturales].insert(minitérmino);
+	foreach(minitérmino; expresión.dontcares)
 		tablaActual[minitérmino.númeroDeNaturales].insert(minitérmino);
 	auto implicantesPrimos = redBlackTree!(minitérminoMenor, Minitérmino)();
 
@@ -299,6 +380,7 @@ ExpresiónBooleana primeraReducciónQuineMcCluskey(ExpresiónBooleana expresión
 					{
 						Minitérmino minitérminoMinimizado = Minitérmino(minitérmino);
 						minitérminoMinimizado[flips[0]] = Minitérmino.Aparición.Ignorada;
+						minitérminoMinimizado.representados.insert(minitérminoAComparar.representados[]);
 						siguienteTabla[minitérminoMinimizado.númeroDeNaturales].insert(minitérminoMinimizado);
 						usado[minitérmino.valor] = true;
 						usado[minitérminoAComparar.valor] = true;
@@ -314,10 +396,119 @@ ExpresiónBooleana primeraReducciónQuineMcCluskey(ExpresiónBooleana expresión
 		tablaActual = siguienteTabla;
 	}
 
-	ExpresiónBooleana resultado = ExpresiónBooleana(númeroDeVariables);
-	foreach(implicantePrimo; implicantesPrimos)
-		resultado.añadirMinitérmino(implicantePrimo);
-	return resultado;
+	return implicantesPrimos;
+}
+
+RedBlackTree!(Minitérmino, minitérminoMenor) 
+segundaReducciónQuineMcCluskey(Minitérmino[] implicantes, int[] cubrir)
+{
+	if(cubrir.length == 0)
+	{
+		return redBlackTree!(minitérminoMenor, Minitérmino)();
+	}
+	auto cantCubrir = cubrir.length;
+	auto cantImplicantes = implicantes.length;
+
+	ExpresiónBooleana[] sumas;
+	sumas.length = cantCubrir;
+	foreach(ref suma; sumas)
+		suma = ExpresiónBooleana(cast(uint)cantImplicantes);
+
+	foreach(valÍndice, val; cubrir)
+	{
+		foreach(implicanteÍndice, implicante; implicantes)
+		{
+			if(!implicante.representados.equalRange(val).empty)
+			{
+				Minitérmino m = Minitérmino(cast(ushort)cantImplicantes);
+				m[implicanteÍndice] = Minitérmino.Aparición.Natural;
+				sumas[valÍndice].añadirMinitérmino(m);
+			}
+		}
+	}
+
+	ExpresiónBooleana resultado = ExpresiónBooleana(cast(uint)cantImplicantes);
+	assert(sumas.length > 0);
+	resultado = sumas[0];
+
+
+	foreach(suma; sumas[1 .. $])
+	{
+		ExpresiónBooleana próximoResultado = ExpresiónBooleana(cast(uint)cantImplicantes);
+		foreach(m1; resultado)
+		{
+			foreach(m2; suma)
+			{
+				Minitérmino m3 = Minitérmino(cast(ushort)cantImplicantes);
+				bool válido = true;
+				
+				mult(m1, m2, m3, válido);
+				if(válido)
+					próximoResultado.añadirMinitérmino(m3);
+			}
+		}
+		resultado = próximoResultado;
+	}
+
+	ulong vars = ulong.max;
+	Minitérmino min = Minitérmino(cast(ushort)cantImplicantes);
+	foreach(ref minitérmino; resultado)
+	{
+		auto numNats = minitérmino.númeroDeNaturales;
+		if(numNats <= vars)
+		{
+			vars = numNats;
+			min = Minitérmino(minitérmino);
+		}
+	}
+	assert(min !is null);
+
+	auto res = redBlackTree!(minitérminoMenor, Minitérmino)();
+	foreach(i, ap; min)
+	{
+		if(ap == Minitérmino.Aparición.Natural)
+		{
+			res.insert(implicantes[i]);
+		}
+	}
+
+	return res;
+}
+
+void mult(Minitérmino m1, Minitérmino m2, ref Minitérmino res, ref bool válido)
+{
+	assert(m1.númeroDeVariables == m2.númeroDeVariables);
+	const númeroDeVariables = m1.númeroDeVariables;
+
+	for(ulong variable = 0; variable < númeroDeVariables; variable++)
+	{
+		if(m1[variable] == Minitérmino.Aparición.Ignorada || m2[variable] ==
+				Minitérmino.Aparición.Ignorada)
+		{
+			res[variable] = m1[variable] == Minitérmino.Aparición.Ignorada?
+				m2[variable] : m1[variable];
+			continue;
+		}
+
+		if(m1[variable] != m2[variable])
+		{
+			válido = false;
+			return;
+		}
+
+		res[variable] = m1[variable];
+	}
+
+	auto representados = redBlackTree!int();
+	foreach(r1; m1.representados)
+	{
+		if(!m2.representados.equalRange(r1).empty)
+		{
+			representados.insert(r1);
+		}
+	}
+	res.representados = representados;
+	válido = true;
 }
 
 size_t[] obtenerFlips(Minitérmino minitérmino, Minitérmino minitérminoAComparar)
